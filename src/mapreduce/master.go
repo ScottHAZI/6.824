@@ -62,6 +62,9 @@ func Sequential(jobName string, files []string, nreduce int,
 	reduceF func(string, []string) string,
 ) (mr *Master) {
 	mr = newMaster("master")
+	// 4th arg: schedule() - schedule(mapPhase) or schedule(reducePhase)
+	// 5th arg: finish()
+	// num of map tasks = len(files), "M" in the paper
 	go mr.run(jobName, files, nreduce, func(phase jobPhase) {
 		switch phase {
 		case mapPhase:

@@ -1,7 +1,12 @@
 package mapreduce
 
 import (
+	"bufio"
+	"encoding/json"
+	"fmt"
 	"hash/fnv"
+	"io/ioutil"
+	"os"
 )
 
 // doMap manages one map task: it reads one of the input files
@@ -53,6 +58,46 @@ func doMap(
 	//
 	// Remember to close the file after you have written all the values!
 	//
+	var contents []byte
+	var err error
+	contents, err = ioutil.ReadFile(inFile)
+	if err != nil {
+		fmt.Printf("Fail to read contents from input file %s\n", inFile)
+		return
+	}
+	var rn string
+	enc := make([]*json.Encoder, nReduce)
+	intrFile := make([]*os.File, nReduce)
+	intrBuf := make([]*bufio.Writer, nReduce)
+	for r := 0; r < nReduce; r++ {
+		rn = reduceName(jobName, mapTaskNumber, r)
+		intrFile[r], err = os.Create(rn)
+		intrBuf[r] = bufio.NewWriter(intrFile[r])
+		if err != nil {
+			fmt.Printf("fail to create intermediate file %s\n", rn)
+			continue
+		}
+		//enc[r] = json.NewEncoder(intrFile[r])
+		enc[r] = json.NewEncoder(intrBuf[r])
+	}
+	kvSlice := mapF(inFile, string(contents))
+	for _, kv := range kvSlice {
+		r := ihash(kv.Key) % nReduce
+		if intrFile[r] == nil {
+			continue
+		}
+		err = enc[r].Encode(&kv)
+		if err != nil {
+			fmt.Printf("fail to endoe <%s, %s> into intermediate file %s\n", kv.Key, kv.Value, reduceName(jobName, mapTaskNumber, r))
+		}
+	}
+	for r := 0; r < nReduce; r++ {
+		intrBuf[r].Flush()
+		err = intrFile[r].Close()
+		if err != nil {
+			fmt.Printf("fail to close intermediate file %s\n", reduceName(jobName, mapTaskNumber, r))
+		}
+	}
 }
 
 func ihash(s string) int {

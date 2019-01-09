@@ -1,5 +1,13 @@
 package mapreduce
 
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"os"
+	"sort"
+)
+
 // doReduce manages one reduce task: it reads the intermediate
 // key/value pairs (produced by the map phase) for this task, sorts the
 // intermediate key/value pairs by key, calls the user-defined reduce function
@@ -43,4 +51,48 @@ func doReduce(
 	// }
 	// file.Close()
 	//
+	var kv KeyValue
+	var kvMap = make(map[string][]string)
+	for m := 0; m < nMap; m++ {
+		rn := reduceName(jobName, m, reduceTaskNumber)
+		intrFile, err := os.Open(rn)
+		if err != nil {
+			fmt.Printf("fail to open intermediate file %s\n", rn)
+			continue
+		}
+		dec := json.NewDecoder(intrFile)
+		for err := dec.Decode(&kv); err == nil; err = dec.Decode(&kv) {
+			kvMap[kv.Key] = append(kvMap[kv.Key], kv.Value)
+		}
+		err = intrFile.Close()
+		if err != nil {
+			fmt.Printf("fail to close intermediate file %s\n", rn)
+		}
+	}
+	outputFile, err := os.Create(outFile)
+	// map and reduce function output appears atomically:
+	// the output file will either not exist, or will contain the entire
+	// output of a single execution of the map or reduce function
+	outputBuf := bufio.NewWriter(outputFile)
+	if err != nil {
+		fmt.Printf("fail to create output file %s\n", outFile)
+		return
+	}
+	var keys []string
+	for key := range kvMap {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	enc := json.NewEncoder(outputBuf)
+	for _, key := range keys {
+		err := enc.Encode(KeyValue{key, reduceF(key, kvMap[key])})
+		if err != nil {
+			fmt.Printf("fail to encode key-value pair into output file %s\n", outFile)
+		}
+	}
+	outputBuf.Flush()
+	err = outputFile.Close()
+	if err != nil {
+		fmt.Printf("fail to close output file %s\n", outFile)
+	}
 }
